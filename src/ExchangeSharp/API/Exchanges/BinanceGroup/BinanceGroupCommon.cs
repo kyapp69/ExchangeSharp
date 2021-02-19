@@ -557,6 +557,7 @@ namespace ExchangeSharp.BinanceGroup
 		{
 			Dictionary<string, object> payload = await GetNoncePayloadAsync();
 			payload["symbol"] = order.MarketSymbol;
+			payload["newClientOrderId"] = order.ClientOrderId;
 			payload["side"] = order.IsBuy ? "BUY" : "SELL";
 			if (order.OrderType == OrderType.Stop)
 				payload["type"] = "STOP_LOSS";//if order type is stop loss/limit, then binance expect word 'STOP_LOSS' inestead of 'STOP'
@@ -934,38 +935,34 @@ namespace ExchangeSharp.BinanceGroup
 				IsBuy = token["side"].ToStringInvariant() == "BUY",
 				OrderDate = CryptoUtility.UnixTimeStampToDateTimeMilliseconds(token["time"].ConvertInvariant<long>(token["transactTime"].ConvertInvariant<long>())),
 				OrderId = token["orderId"].ToStringInvariant(),
-				MarketSymbol = token["symbol"].ToStringInvariant()
+				MarketSymbol = token["symbol"].ToStringInvariant(),
+				ClientOrderId = token["clientOrderId"].ToStringInvariant()
 			};
 
-			switch (token["status"].ToStringInvariant())
+			result.Result = ParseExchangeAPIOrderResult(token["status"].ToStringInvariant(), result.AmountFilled);
+
+			return result;
+		}
+
+		private ExchangeAPIOrderResult ParseExchangeAPIOrderResult(string status, decimal amountFilled)
+		{
+			switch (status)
 			{
 				case "NEW":
-					result.Result = ExchangeAPIOrderResult.Pending;
-					break;
-
+					return ExchangeAPIOrderResult.Pending;
 				case "PARTIALLY_FILLED":
-					result.Result = ExchangeAPIOrderResult.FilledPartially;
-					break;
-
+					return ExchangeAPIOrderResult.FilledPartially;
 				case "FILLED":
-					result.Result = ExchangeAPIOrderResult.Filled;
-					break;
-
+					return ExchangeAPIOrderResult.Filled;
 				case "CANCELED":
+					return amountFilled > 0 ? ExchangeAPIOrderResult.FilledPartiallyAndCancelled : ExchangeAPIOrderResult.Canceled;
 				case "PENDING_CANCEL":
 				case "EXPIRED":
 				case "REJECTED":
-					result.Result = ExchangeAPIOrderResult.Canceled;
-					break;
-
+					return ExchangeAPIOrderResult.Canceled;
 				default:
-					result.Result = ExchangeAPIOrderResult.Error;
-					break;
+					return ExchangeAPIOrderResult.Error;
 			}
-
-			ParseAveragePriceAndFeesFromFills(result, token["fills"]);
-
-			return result;
 		}
 
 		private ExchangeOrderResult ParseTrade(JToken token, string symbol)
@@ -996,6 +993,7 @@ namespace ExchangeSharp.BinanceGroup
 				IsBuy = token["isBuyer"].ConvertInvariant<bool>() == true,
 				OrderDate = CryptoUtility.UnixTimeStampToDateTimeMilliseconds(token["time"].ConvertInvariant<long>()),
 				OrderId = token["orderId"].ToStringInvariant(),
+				TradeId = token["id"].ToStringInvariant(),
 				Fees = token["commission"].ConvertInvariant<decimal>(),
 				FeesCurrency = token["commissionAsset"].ToStringInvariant(),
 				MarketSymbol = symbol
